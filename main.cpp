@@ -70,6 +70,9 @@ static  std::function<void(int, char**)> main_thread =
         serialPort.setParity(QSerialPort::NoParity);
         serialPort.setBaudRate(baudrate);
 
+        //Flush stdout since some shells (bash on windows) are a bit picky
+        fflush(stdout);
+
         //Calculate expected minimum delay as the time it takes to send
         //one byte and receive one byte
         uint64_t minimum_delay_ns = (1000000000LL * 10LL) / baudrate;
@@ -100,6 +103,10 @@ static  std::function<void(int, char**)> main_thread =
         do{
             qint64 start_time = timer.nsecsElapsed();
             uint8_t read_byte;
+
+            //Flush stdout again so baudrate is shown
+            fflush(stdout);
+
             serialPort.putChar(b);
             if(serialPort.waitForReadyRead(100)){
                 //There is data to read, All OK
