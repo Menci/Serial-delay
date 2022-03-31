@@ -9,15 +9,27 @@
 #include <iostream>
 #include <stdio.h>
 
-// This becomes our main function. Works just
-// like a regular main() Only it uses
-// QCoreApplication::exit() instead of return
+static void usage(){
+    std::cerr << "Usage:" << std::endl;
+    std::cerr << QCoreApplication::applicationName().toStdString() << " <SERIAL PORT>" << std::endl;
+    std::cerr << std::endl;
+    std::cerr << "Example:" << std::endl;
+    std::cerr << "    Windows -> " << QCoreApplication::applicationName().toStdString() << " COM1" << std::endl;
+    std::cerr << "      Linux -> " << QCoreApplication::applicationName().toStdString() << " /dev/ttyS0" << std::endl;
+}
+
 static  std::function<void(int, char**)> main_thread =
 [](int argc, char** argv)
 {
     //Parse command-line options
     if(argc < 2){
         std::cerr << "[ERR] Missing serial port argument" << std::endl;
+        usage();
+        QCoreApplication::exit(0);
+        return;
+    }
+    if((QString(argv[1]) == "--help") || (QString(argv[1]) == "-h")){
+        usage();
         QCoreApplication::exit(0);
         return;
     }
@@ -34,6 +46,15 @@ static  std::function<void(int, char**)> main_thread =
 
     //Time divisor (use 1 for nanoseconds)
     const uint64_t time_div = 1000;
+    if (time_div == 1) {
+        std::cout << "Time shown in ns" <<std::endl;
+    }
+    else if (time_div == 1000){
+        std::cout << "Time shown in ms" <<std::endl;
+    }
+    else{
+        std::cout << "Time shown in s/10E+" << time_div << std::endl;
+    }
 
     //Start a reference timer
     QElapsedTimer timer;
@@ -134,6 +155,7 @@ int main(int argc, char *argv[])
 {
     int rv;
     QCoreApplication a(argc, argv);
+    a.setApplicationName("serial-latency");
     std::shared_ptr<QThread> main_qthread (
         QThread::create(main_thread, argc, argv)
     );
