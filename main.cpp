@@ -6,12 +6,13 @@
 
 #include <functional>
 #include <memory>
+#include <fstream>
 #include <iostream>
 #include <stdio.h>
 
 static void usage(){
     std::cerr << "Usage:" << std::endl;
-    std::cerr << QCoreApplication::applicationName().toStdString() << " <SERIAL PORT>" << std::endl;
+    std::cerr << QCoreApplication::applicationName().toStdString() << " <SERIAL PORT> <RESULT.TXT> [BAUD RATES]" << std::endl;
     std::cerr << std::endl;
     std::cerr << "Example:" << std::endl;
     std::cerr << "    Windows -> " << QCoreApplication::applicationName().toStdString() << " COM1" << std::endl;
@@ -44,6 +45,31 @@ static  std::function<void(int, char**)> main_thread =
     std::cout << portInfo.portName().toStdString() << " (" << portInfo.description().toStdString() << ")" << std::endl;
     std::cout << "Vendor: " << portInfo.manufacturer().toStdString() << std::endl;
 
+    std::ofstream fout(argv[2]);
+    if (!fout.is_open()) {
+        std::cerr << "[ERR] Unable to open file: " << argv[2] << std::endl;
+        QCoreApplication::exit(0);
+        return;
+    }
+
+    // Parse baud rates from third argument (separated with ",")
+    std::vector<qint32> baud_rates;
+    if (argc > 3) {
+        std::string baud_rates_str(argv[3]);
+        size_t pos = 0;
+        std::string token;
+        while ((pos = baud_rates_str.find(",")) != std::string::npos) {
+            token = baud_rates_str.substr(0, pos);
+            baud_rates.push_back(std::stoi(token));
+            baud_rates_str.erase(0, pos + 1);
+        }
+        baud_rates.push_back(std::stoi(baud_rates_str));
+    } else {
+        for (const qint32 rate : QSerialPortInfo::standardBaudRates()) {
+            baud_rates.push_back(rate);
+        }
+    }
+
     //Time divisor (use 1 for nanoseconds)
     const uint64_t time_div = 1000;
     if (time_div == 1) {
@@ -63,7 +89,8 @@ static  std::function<void(int, char**)> main_thread =
     //Print table header
     printf("% 7s  % 10s % 10s % 10s % 10s % 10s\r\n", "Speed", "Ideal", "Minimum", "Average", "Maximum", "Delta");
     //Perform test on selected port for each baudrate
-    for (qint32 baudrate : QSerialPortInfo::standardBaudRates()){
+    std::map<qint32, std::vector<uint64_t>> result_map;
+    for (qint32 baudrate : baud_rates){
         QSerialPort serialPort(portInfo);
         serialPort.setDataBits(QSerialPort::Data8);
         serialPort.setStopBits(QSerialPort::OneStop);
@@ -93,14 +120,17 @@ static  std::function<void(int, char**)> main_thread =
             serialPort.read(dummy, sizeof(dummy));
         }
 
-        //send 256 individual bytes over the wire and calculate minimum, maximum and average delays
+        //send N individual bytes over the wire and calculate minimum, maximum and average delays
+        const size_t N = 5000;
         uint8_t b = 0;
         uint64_t delay_max = 0;
         uint64_t delay_min = UINT64_MAX;
         uint64_t delay_avg = 0;
         bool has_timed_out = false;
         bool has_errors = false;
-        do{
+        std::vector<uint64_t> sample_array;
+        sample_array.resize(N);
+        for (int i = 0; i < N; i++) {
             qint64 start_time = timer.nsecsElapsed();
             uint8_t read_byte;
 
@@ -126,10 +156,11 @@ static  std::function<void(int, char**)> main_thread =
             if(sample_time > delay_max) delay_max = sample_time;
             if(sample_time < delay_min) delay_min = sample_time;
             delay_avg += sample_time;
+            sample_array[i] = sample_time;
 
             b++;
         }while(b != 0);
-        delay_avg = delay_avg / 256;
+        delay_avg = delay_avg / N;
         serialPort.close();
 
         //Print data and then test the next baudrate
@@ -148,10 +179,17 @@ static  std::function<void(int, char**)> main_thread =
         else{
             printf("\r\n");
         }
+        result_map[baudrate] = std::move(sample_array);
     }
 
     //Cleanup
     timer.invalidate();
+
+    for (const auto& [rate, samples] : result_map) {
+        fout << rate;
+        for (const auto sample : samples) fout << " " << sample;
+        fout << std::endl;
+    }
 
     QCoreApplication::exit(0);
 };
